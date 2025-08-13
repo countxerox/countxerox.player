@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Timestamp MP3 Player</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+    body { margin: 2rem; line-height: 1.4; }
+    .row { display:flex; gap:0.5rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
+    input[type="text"] { flex: 1 1 360px; padding: 0.6rem; }
+    button { padding: 0.6rem 0.9rem; border: 1px solid #ccc; border-radius: 6px; background: #f7f7f7; cursor: pointer; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .btns { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.6rem; margin-top: 0.5rem; }
+    .hint { color: #555; font-size: 0.95rem; }
+    .small { font-size: 0.9rem; color: #666; }
+    .status { margin-top: 0.5rem; min-height: 1.2rem; }
+    audio { width: 100%; margin-top: 1rem; }
+    .card { border: 1px solid #e5e5e5; border-radius: 8px; padding: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Timestamp MP3 Player</h1>
+  <div class="card">
+    <div class="row">
+      <label for="src" class="small">MP3 URL:</label>
+      <input id="src" type="text" placeholder="Paste your MP3 link here (e.g. Google Drive share link → converted)" />
+      <button id="load">Load MP3</button>
+    </div>
+    <div class="small hint">
+      Tip: For Google Drive, share the file as “Anyone with the link → Viewer”, then use:<br>
+      <code>https://drive.google.com/uc?export=download&id=&lt;FILE_ID&gt;</code>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:1rem;">
+    <div class="row">
+      <strong>Quick buttons:</strong>
+    </div>
+    <div class="btns">
+      <button data-start="0">▶︎ Play from 0:00</button>
+      <button data-start="30">▶︎ Play from 0:30</button>
+      <button data-start="60">▶︎ Play from 1:00</button>
+      <button id="delay20">⏲︎ Wait 20s, then Play</button>
+    </div>
+
+    <div class="row" style="margin-top:0.8rem;">
+      <input id="customStart" type="number" min="0" step="1" placeholder="Start at (seconds)" />
+      <button id="playCustom">▶︎ Play from custom time</button>
+    </div>
+
+    <div class="row">
+      <input id="delaySeconds" type="number" min="0" step="1" placeholder="Delay (seconds)" />
+      <input id="delayStart" type="number" min="0" step="1" placeholder="Start at (seconds after delay)" />
+      <button id="playWithDelay">⏲︎ Delay, then Play</button>
+    </div>
+
+    <div class="row">
+      <button id="pause">⏸︎ Pause</button>
+      <button id="stop">⏹︎ Stop</button>
+    </div>
+
+    <div class="status" id="status"></div>
+    <audio id="player" controls preload="metadata"></audio>
+  </div>
+
+  <script>
+    const player = document.getElementById('player');
+    const loadBtn = document.getElementById('load');
+    const srcInput = document.getElementById('src');
+    const statusEl = document.getElementById('status');
+
+    function setStatus(msg) {
+      statusEl.textContent = msg || '';
+    }
+
+    function primeAudioGesture() {
+      // On iOS/Safari, ensure playback is permitted after a user gesture,
+      // even if we delay it. This brief play/pause primes audio.
+      try {
+        const p = player.play();
+        if (p && typeof p.then === 'function') {
+          p.then(() => { player.pause(); }).catch(() => {});
+        } else {
+          player.pause();
+        }
+      } catch (e) {}
+    }
+
+    function setSource(url) {
+      player.src = url;
+      player.load();
+      setStatus('MP3 loaded. You can use the buttons to jump to timestamps.');
+    }
+
+    function parseDriveUrlToDirect(url) {
+      // Accepts standard Drive sharing links and returns the uc?export=download form
+      try {
+        const u = new URL(url);
+        if (u.hostname.includes('drive.google.com')) {
+          // patterns: /file/d/<id>/view?usp=sharing  or open?id=<id>
+          let id = null;
+          const paths = u.pathname.split('/').filter(Boolean);
+          const dIdx = paths.indexOf('d');
+          if (dIdx !== -1 && paths[dIdx+1]) id = paths[dIdx+1];
+          if (!id) id = u.searchParams.get('id');
+          if (id) return `https://drive.google.com/uc?export=download&id=${id}`;
+        }
+      } catch(e) {}
+      return url; // not a Drive link or already direct
+    }
+
+    loadBtn.addEventListener('click', () => {
+      const raw = srcInput.value.trim();
+      if (!raw) { setStatus('Please paste an MP3 URL.'); return; }
+      const url = parseDriveUrlToDirect(raw);
+      setSource(url);
+    });
+
+    function seekAndPlay(atSeconds = 0) {
+      if (!player.src) { setStatus('Load an MP3 first.'); return; }
+      const go = () => {
+        try {
+          player.currentTime = Math.max(0, atSeconds || 0);
+        } catch (e) {
+          // Some browsers need a small delay after metadata
+          setTimeout(() => { player.currentTime = Math.max(0, atSeconds || 0); }, 50);
+        }
+        const p = player.play();
+        if (p && typeof p.then === 'function') {
+          p.then(() => setStatus(`Playing from ${formatTime(atSeconds)}.`)).catch(err => {
+            setStatus('Playback was blocked. Try clicking again.');
+            console.error(err);
+          });
+        } else {
+          setStatus(`Playing from ${formatTime(atSeconds)}.`);
+        }
+      };
+
+      if (player.readyState >= 1) {
+        go();
+      } else {
+        player.addEventListener('loadedmetadata', function onMeta() {
+          player.removeEventListener('loadedmetadata', onMeta);
+          go();
+        });
+        // Ensure metadata loads
+        player.load();
+      }
+    }
+
+    function playWithDelay(delaySeconds = 0, startAt = 0) {
+      if (!player.src) { setStatus('Load an MP3 first.'); return; }
+      delaySeconds = Math.max(0, delaySeconds|0);
+      startAt = Math.max(0, startAt|0);
+      setStatus(`Waiting ${delaySeconds}s… then playing from ${formatTime(startAt)}.`);
+
+      // Prime audio on user gesture to satisfy iOS autoplay restrictions.
+      primeAudioGesture();
+
+      const btns = document.querySelectorAll('button');
+      btns.forEach(b => b.disabled = true);
+      const t = setTimeout(() => {
+        btns.forEach(b => b.disabled = false);
+        seekAndPlay(startAt);
+      }, delaySeconds * 1000);
+    }
+
+    function formatTime(s) {
+      s = Math.floor(s);
+      const m = Math.floor(s / 60);
+      const r = s % 60;
+      return `${m}:${r.toString().padStart(2,'0')}`;
+    }
+
+    // Quick buttons
+    document.querySelectorAll('button[data-start]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const t = parseInt(btn.getAttribute('data-start'), 10) || 0;
+        seekAndPlay(t);
+      });
+    });
+
+    // Delay 20s then play from 0
+    document.getElementById('delay20').addEventListener('click', () => {
+      playWithDelay(20, 0);
+    });
+
+    // Custom time
+    document.getElementById('playCustom').addEventListener('click', () => {
+      const t = parseInt(document.getElementById('customStart').value, 10);
+      if (Number.isFinite(t) && t >= 0) seekAndPlay(t);
+      else setStatus('Enter a valid number of seconds.');
+    });
+
+    // Generic delay + start
+    document.getElementById('playWithDelay').addEventListener('click', () => {
+      const d = parseInt(document.getElementById('delaySeconds').value, 10);
+      const s = parseInt(document.getElementById('delayStart').value, 10) || 0;
+      if (!Number.isFinite(d) || d < 0) { setStatus('Enter a valid delay in seconds.'); return; }
+      playWithDelay(d, s);
+    });
+
+    // Pause & Stop
+    document.getElementById('pause').addEventListener('click', () => {
+      player.pause();
+      setStatus('Paused.');
+    });
+    document.getElementById('stop').addEventListener('click', () => {
+      player.pause();
+      try { player.currentTime = 0; } catch(e) {}
+      setStatus('Stopped.');
+    });
+
+    // Allow MP3 via URL param ?mp3=
+    (function initFromQuery(){
+      try {
+        const u = new URL(window.location.href);
+        const q = u.searchParams.get('mp3');
+        if (q) {
+          const direct = parseDriveUrlToDirect(q);
+          srcInput.value = direct;
+          setSource(direct);
+        }
+      } catch(e){}
+    })();
+  </script>
+</body>
+</html>
