@@ -11,7 +11,6 @@
     input[type="text"] { flex: 1 1 360px; padding: 0.6rem; }
     button { padding: 0.6rem 0.9rem; border: 1px solid #ccc; border-radius: 6px; background: #f7f7f7; cursor: pointer; }
     button:disabled { opacity: 0.6; cursor: not-allowed; }
-    .btns { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.6rem; margin-top: 0.5rem; }
     .status { margin-top: 0.5rem; min-height: 1.2rem; }
     audio { width: 100%; margin-top: 1rem; }
     .card { border: 1px solid #e5e5e5; border-radius: 8px; padding: 1rem; }
@@ -27,21 +26,11 @@
     </div>
   </div>
 
-  <div class="card" style="margin-top:1rem;">
-    <div class="row">
-      <strong>Quick buttons:</strong>
-    </div>
-    <div class="btns">
-      <button data-start="0">▶︎ Play from 0:00</button>
-      <button data-start="30">▶︎ Play from 0:30</button>
-      <button data-start="60">▶︎ Play from 1:00</button>
-      <button id="delay20">⏲︎ Wait 20s, then Play</button>
-    </div>
-
-    <div class="row" style="margin-top:0.8rem;">
-      <input id="customStart" type="number" min="0" step="1" placeholder="Start at (seconds)" />
-      <button id="playCustom">▶︎ Play from custom time</button>
-    </div>
+    <div class="card" style="margin-top:1rem;">
+      <div class="row">
+        <input id="customStart" type="number" min="0" step="1" placeholder="Start at (seconds)" />
+        <button id="playCustom">▶︎ Play from custom time</button>
+      </div>
 
     <div class="row">
       <input id="delaySeconds" type="number" min="0" step="1" placeholder="Delay (seconds)" />
@@ -122,14 +111,6 @@
       return `${m}:${r.toString().padStart(2,'0')}`;
     }
 
-    document.querySelectorAll('button[data-start]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const t = parseInt(btn.getAttribute('data-start'), 10) || 0;
-        seekAndPlay(t);
-      });
-    });
-
-    document.getElementById('delay20').addEventListener('click', () => playWithDelay(20, 0));
     document.getElementById('playCustom').addEventListener('click', () => {
       const t = parseInt(document.getElementById('customStart').value, 10);
       if (Number.isFinite(t) && t >= 0) seekAndPlay(t);
