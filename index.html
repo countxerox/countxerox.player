@@ -50,7 +50,7 @@
     </div>
 
     <div class="row">
-      <button id="pause">⏸︎ Pause</button>
+      <button id="playPause">▶︎ Play</button>
       <button id="stop">⏹︎ Stop</button>
     </div>
 
@@ -141,11 +141,29 @@
       if (!Number.isFinite(d) || d < 0) { setStatus('Enter a valid delay in seconds.'); return; }
       playWithDelay(d, s);
     });
-    document.getElementById('pause').addEventListener('click', () => { player.pause(); setStatus('Paused.'); });
+
+    const playPauseBtn = document.getElementById('playPause');
+    function togglePlay() {
+      if (player.paused) {
+        player.play().then(() => setStatus('Playing.'))
+                     .catch(() => setStatus('Playback was blocked. Try clicking again.'));
+      } else {
+        player.pause();
+        setStatus('Paused.');
+      }
+    }
+    function updatePlayPause() {
+      playPauseBtn.textContent = player.paused ? '▶︎ Play' : '⏸︎ Pause';
+    }
+    playPauseBtn.addEventListener('click', togglePlay);
+    player.addEventListener('play', updatePlayPause);
+    player.addEventListener('pause', updatePlayPause);
+
     document.getElementById('stop').addEventListener('click', () => {
       player.pause();
       try { player.currentTime = 0; } catch(e) {}
       setStatus('Stopped.');
+      updatePlayPause();
     });
 
     // Auto-load hardcoded MP3
