@@ -8,7 +8,7 @@
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
     body { margin: 2rem; line-height: 1.4; }
     .row { display:flex; gap:0.5rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
-    input[type="text"] { flex: 1 1 360px; padding: 0.6rem; }
+    input[type="text"], select { flex: 1 1 360px; padding: 0.6rem; }
     button { padding: 0.6rem 0.9rem; border: 1px solid #ccc; border-radius: 6px; background: #f7f7f7; cursor: pointer; }
     button:disabled { opacity: 0.6; cursor: not-allowed; }
     .status { margin-top: 0.5rem; min-height: 1.2rem; }
@@ -20,9 +20,12 @@
   <h1>Timestamp MP3 Player</h1>
   <div class="card">
     <div class="row">
-      <label for="src">MP3 URL:</label>
-      <input id="src" type="text" value="Everywhere (online-audio-converter.com).mp3" readonly />
-      <button id="load">Load MP3</button>
+      <label for="songSelect">Songs:</label>
+      <select id="songSelect">
+        <option value="" disabled selected>No songs saved</option>
+      </select>
+      <button id="findMusic">Find Music</button>
+      <input id="fileInput" type="file" accept="audio/*" style="display:none" />
     </div>
   </div>
 
@@ -49,9 +52,96 @@
 
   <script>
     const player = document.getElementById('player');
-    const loadBtn = document.getElementById('load');
-    const srcInput = document.getElementById('src');
+    const songSelect = document.getElementById('songSelect');
+    const findBtn = document.getElementById('findMusic');
+    const fileInput = document.getElementById('fileInput');
     const statusEl = document.getElementById('status');
+
+    const DB_NAME = 'mp3player';
+    const STORE_NAME = 'songs';
+    let db;
+    let currentObjectUrl;
+
+    function openDb() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, 1);
+        req.onupgradeneeded = () => {
+          req.result.createObjectStore(STORE_NAME, { keyPath: 'name' });
+        };
+        req.onsuccess = () => { db = req.result; resolve(); };
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    function saveSong(name, data, type) {
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        tx.objectStore(STORE_NAME).put({ name, data, type });
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    function loadSong(name) {
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const req = tx.objectStore(STORE_NAME).get(name);
+        req.onsuccess = () => {
+          const record = req.result;
+          if (record) {
+            if (currentObjectUrl) URL.revokeObjectURL(currentObjectUrl);
+            const blob = new Blob([record.data], { type: record.type || 'audio/mpeg' });
+            const url = URL.createObjectURL(blob);
+            currentObjectUrl = url;
+            setSource(url);
+          } else {
+            setStatus('Song not found.');
+          }
+          resolve();
+        };
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    function populateSongs() {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const req = tx.objectStore(STORE_NAME).getAllKeys();
+      req.onsuccess = () => {
+        const keys = req.result;
+        songSelect.innerHTML = '';
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.disabled = true;
+        placeholder.selected = true;
+        placeholder.textContent = keys.length ? 'Select a song' : 'No songs saved';
+        songSelect.appendChild(placeholder);
+        keys.forEach(name => {
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          songSelect.appendChild(opt);
+        });
+      };
+    }
+
+    openDb().then(populateSongs);
+
+    findBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files[0];
+      if (!file) return;
+      const buf = await file.arrayBuffer();
+      await saveSong(file.name, buf, file.type);
+      await populateSongs();
+      songSelect.value = file.name;
+      loadSong(file.name);
+      fileInput.value = '';
+    });
+
+    songSelect.addEventListener('change', () => {
+      const name = songSelect.value;
+      if (name) loadSong(name);
+    });
 
     function setStatus(msg) { statusEl.textContent = msg || ''; }
 
@@ -66,11 +156,11 @@
     function setSource(url) {
       player.src = url;
       player.load();
-      setStatus('MP3 loaded. You can use the buttons to jump to timestamps.');
+      setStatus('Song loaded. You can use the buttons to jump to timestamps.');
     }
 
     function seekAndPlay(atSeconds = 0) {
-      if (!player.src) { setStatus('Load an MP3 first.'); return; }
+      if (!player.src) { setStatus('Load a song first.'); return; }
       const go = () => {
         try { player.currentTime = Math.max(0, atSeconds || 0); }
         catch (e) { setTimeout(() => { player.currentTime = Math.max(0, atSeconds || 0); }, 50); }
@@ -91,7 +181,7 @@
     }
 
     function playWithDelay(delaySeconds = 0, startAt = 0) {
-      if (!player.src) { setStatus('Load an MP3 first.'); return; }
+      if (!player.src) { setStatus('Load a song first.'); return; }
       delaySeconds = Math.max(0, delaySeconds|0);
       startAt = Math.max(0, startAt|0);
       setStatus(`Waiting ${delaySeconds}s… then playing from ${formatTime(startAt)}.`);
@@ -146,9 +236,6 @@
       setStatus('Stopped.');
       updatePlayPause();
     });
-
-    // Auto-load hardcoded MP3
-    setSource(srcInput.value);
   </script>
 </body>
 </html>
